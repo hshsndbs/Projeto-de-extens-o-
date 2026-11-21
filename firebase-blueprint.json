@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "Sala": {
+      "title": "Sala",
+      "description": "Estado compartilhado de uma sala de espera multiplayer.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["aguardando", "iniciada"],
+          "description": "Estado atual da sala (aguardando jogadores ou partida iniciada)."
+        },
+        "atualizadoEm": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data e hora da última atualização de estado da sala."
+        }
+      },
+      "required": ["status", "atualizadoEm"]
+    },
+    "Jogador": {
+      "title": "Jogador",
+      "description": "Participante conectado em uma aba da sala de espera.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID do usuário autenticado via Firebase Auth."
+        },
+        "nome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "description": "Apelido exibido na sala (máximo 16 caracteres)."
+        },
+        "pronto": {
+          "type": "boolean",
+          "description": "Indica se o jogador confirmou que está pronto."
+        },
+        "entrouEm": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horário de entrada do jogador na sala."
+        },
+        "ultimoSinal": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Último sinal de atividade da aba."
+        },
+        "bot": {
+          "type": "boolean",
+          "description": "Indica se o jogador é um bot de teste do modo demonstração."
+        },
+        "avisou": {
+          "type": "boolean",
+          "description": "Indica se o bot já enviou a mensagem automática de pronto no chat."
+        }
+      },
+      "required": ["uid", "nome", "pronto", "entrouEm", "ultimoSinal"]
+    },
+    "Mensagem": {
+      "title": "Mensagem",
+      "description": "Mensagem de chat ou evento do sistema na sala.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID do usuário autenticado que enviou a mensagem."
+        },
+        "tipo": {
+          "type": "string",
+          "enum": ["usuario", "sistema"],
+          "description": "Tipo da mensagem (jogador ou evento do sistema)."
+        },
+        "autor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "description": "Nome exibido como autor da mensagem."
+        },
+        "texto": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Conteúdo da mensagem."
+        },
+        "hora": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horário de envio registrado no servidor."
+        }
+      },
+      "required": ["uid", "tipo", "autor", "texto", "hora"]
+    }
+  },
+  "firestore": {
+    "/salas/{salaId}": {
+      "schema": { "$ref": "#/entities/Sala" },
+      "description": "Documento de controle de estado da sala de espera (ex: principal)."
+    },
+    "/salas/{salaId}/jogadores/{jogadorId}": {
+      "schema": { "$ref": "#/entities/Jogador" },
+      "description": "Lista de jogadores conectados por aba na sala."
+    },
+    "/salas/{salaId}/mensagens/{mensagemId}": {
+      "schema": { "$ref": "#/entities/Mensagem" },
+      "description": "Mensagens do chat em tempo real e notificações de sistema."
+    }
+  }
+}

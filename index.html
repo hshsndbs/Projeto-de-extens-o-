@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sala de Espera — Lobby Multiplayer</title>
+  <meta name="description" content="Sala de espera em tempo real para jogos multiplayer usando HTML, CSS, JavaScript puro e Firebase." />
+  <meta property="og:title" content="Sala de Espera — Lobby Multiplayer" />
+  <meta property="og:description" content="Sala de espera em tempo real para jogos multiplayer usando HTML, CSS, JavaScript puro e Firebase." />
+  <meta property="og:type" content="website" />
+
+  <!-- Tipografia limpa (Plus Jakarta Sans para interface e JetBrains Mono para horários/números) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Arquivo de estilos separado -->
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <!-- Cabeçalho simples e informativo -->
+    <header class="top-header">
+      <div class="brand-group">
+        <h1 class="brand-title">Sala de Espera</h1>
+        <span class="room-code">Sala principal</span>
+      </div>
+      <div id="header-player-info" class="header-player hidden">
+        <span class="header-player-label">Jogador:</span>
+        <strong id="header-player-name" class="header-player-name"></strong>
+        <button type="button" id="btn-leave-room" class="btn-link">Sair da sala</button>
+      </div>
+    </header>
+
+    <!-- Aviso de erro de configuração/conexão caso ocorra -->
+    <section id="config-warning" class="banner-warning hidden" role="alert">
+      <strong>Aviso de conexão:</strong> Não foi possível validar a conexão com o Firebase.
+      Verifique o objeto <code>firebaseConfig</code> no topo de <code>app.js</code>.
+    </section>
+
+    <!-- =========================================================
+         TELA 1: LOGIN (Autenticação Google + Apelido na sala)
+         ========================================================= -->
+    <section id="screen-login" class="card login-card" aria-labelledby="login-title">
+      <div class="login-header">
+        <h2 id="login-title" class="section-title">Entrar na sala</h2>
+        <p class="section-subtitle">
+          Conecte sua conta Google e escolha um apelido de até 16 caracteres para participar.
+        </p>
+      </div>
+
+      <!-- Etapa A: Autenticação com Google (exigida pelas regras do Firebase) -->
+      <div id="auth-box" class="auth-box">
+        <p id="auth-status-text" class="auth-status-text">Verificando sessão...</p>
+        <button type="button" id="btn-google-login" class="btn btn-primary btn-full hidden">
+          Entrar com Google
+        </button>
+        <div id="auth-signed-in-bar" class="auth-signed-in-bar hidden">
+          <span id="auth-user-email" class="auth-user-email"></span>
+          <button type="button" id="btn-google-logout" class="btn-link">Trocar conta</button>
+        </div>
+      </div>
+
+      <!-- Etapa B: Escolha do apelido e entrada na sala -->
+      <form id="login-form" class="login-form hidden" novalidate>
+        <div class="field-group">
+          <label for="nickname-input" class="field-label">Seu apelido</label>
+          <input
+            type="text"
+            id="nickname-input"
+            class="text-input"
+            maxlength="16"
+            autocomplete="off"
+            placeholder="Ex: Jogador1"
+            required
+          />
+          <div class="field-helper">
+            <span>Máximo de 16 caracteres</span>
+            <span id="nickname-counter" class="tabular-nums">0/16</span>
+          </div>
+        </div>
+
+        <p id="login-error" class="form-error hidden" role="alert"></p>
+
+        <button type="submit" id="btn-enter" class="btn btn-primary btn-full">
+          Entrar na sala
+        </button>
+      </form>
+    </section>
+
+    <!-- =========================================================
+         TELA 2: SALA DE ESPERA (Jogadores, Pronto, Chat e Iniciar)
+         ========================================================= -->
+    <section id="screen-lobby" class="lobby-grid hidden" aria-label="Sala de espera">
+      <!-- Coluna esquerda: Lista de jogadores e ações da partida -->
+      <div class="card panel-players">
+        <div class="panel-header">
+          <div>
+            <h2 class="section-title">Jogadores</h2>
+            <p id="players-counter" class="players-counter tabular-nums">0 jogadores na sala</p>
+          </div>
+        </div>
+
+        <ul id="players-list" class="players-list" aria-live="polite">
+          <!-- Preenchido dinamicamente via JavaScript usando textContent -->
+        </ul>
+
+        <div class="lobby-actions">
+          <button type="button" id="btn-ready" class="btn btn-primary btn-full">
+            Estou pronto
+          </button>
+
+          <button type="button" id="btn-start" class="btn btn-success btn-full" disabled>
+            Iniciar partida
+          </button>
+
+          <p id="start-hint" class="action-hint">
+            Necessário no mínimo 2 jogadores prontos para iniciar.
+          </p>
+        </div>
+
+        <!-- Modo demonstração: área visível e autoexplicativa para testar sozinho -->
+        <div class="demo-section">
+          <div class="demo-header">
+            <h3 class="demo-title">Modo demonstração</h3>
+            <p class="demo-description">
+              Adicione jogadores simulados para testar a sala sozinho.
+            </p>
+          </div>
+
+          <p id="demo-solo-tip" class="demo-tip hidden">
+            Dica: clique em Adicionar bot de teste para simular outros jogadores.
+          </p>
+
+          <div class="demo-controls">
+            <button type="button" id="btn-add-bot" class="btn-demo-outline">
+              Adicionar bot de teste
+            </button>
+            <button type="button" id="btn-remove-bots" class="btn-demo-neutral" disabled>
+              Remover bots
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coluna direita: Chat em tempo real -->
+      <div class="card panel-chat">
+        <div class="panel-header panel-header-row">
+          <h2 class="section-title">Chat da sala</h2>
+          <button type="button" id="btn-clear-chat" class="btn-subtle btn-compact" disabled>
+            Limpar chat
+          </button>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" aria-live="polite">
+          <!-- Mensagens renderizadas dinamicamente via JavaScript usando textContent -->
+        </div>
+
+        <form id="chat-form" class="chat-form" novalidate>
+          <label for="chat-input" class="sr-only">Digite uma mensagem</label>
+          <input
+            type="text"
+            id="chat-input"
+            class="text-input chat-input"
+            maxlength="200"
+            autocomplete="off"
+            placeholder="Escreva uma mensagem..."
+          />
+          <button type="submit" id="btn-send-chat" class="btn btn-primary">
+            Enviar
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         TELA 3: PARTIDA INICIADA
+         ========================================================= -->
+    <section id="screen-started" class="card started-card hidden" aria-labelledby="started-title">
+      <div class="started-content">
+        <span class="started-kicker">Todos os jogadores confirmaram</span>
+        <h2 id="started-title" class="started-title">Partida iniciada!</h2>
+        <p class="section-subtitle">
+          A sala entrou em jogo simultaneamente para todos os participantes conectados.
+        </p>
+
+        <div class="started-players-box">
+          <h3 class="started-list-title">Participantes desta partida</h3>
+          <ul id="started-players-list" class="started-players-list">
+            <!-- Lista simples dos jogadores confirmados -->
+          </ul>
+        </div>
+
+        <button type="button" id="btn-back-lobby" class="btn btn-primary">
+          Voltar para a sala
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Script principal usando módulos ES (SDK modular do Firebase via CDN gstatic) -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
