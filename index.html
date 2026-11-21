@@ -39,30 +39,26 @@
     </section>
 
     <!-- =========================================================
-         TELA 1: LOGIN (Autenticação Google + Apelido na sala)
+         TELA 1: LOGIN (Login anônimo automático + Apelido na sala)
          ========================================================= -->
     <section id="screen-login" class="card login-card" aria-labelledby="login-title">
       <div class="login-header">
         <h2 id="login-title" class="section-title">Entrar na sala</h2>
         <p class="section-subtitle">
-          Conecte sua conta Google e escolha um apelido de até 16 caracteres para participar.
+          Escolha um apelido de até 16 caracteres para participar da sala de espera e conversar.
         </p>
       </div>
 
-      <!-- Etapa A: Autenticação com Google (exigida pelas regras do Firebase) -->
-      <div id="auth-box" class="auth-box">
-        <p id="auth-status-text" class="auth-status-text">Verificando sessão...</p>
+      <!-- Aviso exibido apenas se o login anônimo não estiver ativado no Firebase Console -->
+      <div id="auth-box" class="auth-box hidden">
+        <p id="auth-status-text" class="auth-status-text"></p>
         <button type="button" id="btn-google-login" class="btn btn-primary btn-full hidden">
           Entrar com Google
         </button>
-        <div id="auth-signed-in-bar" class="auth-signed-in-bar hidden">
-          <span id="auth-user-email" class="auth-user-email"></span>
-          <button type="button" id="btn-google-logout" class="btn-link">Trocar conta</button>
-        </div>
       </div>
 
-      <!-- Etapa B: Escolha do apelido e entrada na sala -->
-      <form id="login-form" class="login-form hidden" novalidate>
+      <!-- Escolha do apelido e entrada na sala -->
+      <form id="login-form" class="login-form" novalidate>
         <div class="field-group">
           <label for="nickname-input" class="field-label">Seu apelido</label>
           <input

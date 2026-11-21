@@ -1,82 +1,59 @@
 // ============================================================================
 // 1. IMPORTAÇÃO DO FIREBASE (SDK MODULAR VIA CDN DO GSTATIC)
 // ============================================================================
-// Usamos a versão modular direto da CDN oficial do Google (gstatic), sem
-// precisar de React, bundler ou etapa de build para publicar no Netlify.
+// Usamos apenas Firebase Auth (login anônimo) e Firebase Realtime Database
+// diretamente via CDN oficial do Google, sem React e sem etapa de build.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
   getAuth,
+  signInAnonymously,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
-  getFirestore,
-  doc,
-  collection,
-  getDoc,
-  getDocFromServer,
-  getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  addDoc,
-  onSnapshot,
+  getDatabase,
+  ref,
+  get,
+  set,
+  update,
+  push,
+  remove,
+  onValue,
+  onDisconnect,
   query,
-  orderBy,
+  orderByChild,
   limitToLast,
-  writeBatch,
   serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 
 // ============================================================================
-// 2. CONFIGURAÇÃO DO FIREBASE (PROJETO PROVISIONADO)
+// 2. CONFIGURAÇÃO DO FIREBASE (COM databaseURL DO REALTIME DATABASE)
 // ============================================================================
-// Credenciais do projeto Firebase conectado a este aplicativo.
 const firebaseConfig = {
-  apiKey: "AIzaSyC9f1YES8H3iTf1zwE60W3JUe8Yf4uDfpQ",
-  authDomain: "synthetic-brand-w8gvj.firebaseapp.com",
-  projectId: "synthetic-brand-w8gvj",
-  storageBucket: "synthetic-brand-w8gvj.firebasestorage.app",
-  messagingSenderId: "846446343687",
-  appId: "1:846446343687:web:918b05f0f4ca6cdb019ca2",
-  firestoreDatabaseId: "ai-studio-saladeesperalobb-bfd1fe66-fe93-4381-89b2-47686d4241a4"
+  apiKey: "AIzaSyCX8b665uBL8zVD12Zu6PHAq8ZRguBkFks",
+  authDomain: "sala-de-espera-c3802.firebaseapp.com",
+  databaseURL: "https://sala-de-espera-c3802-default-rtdb.firebaseio.com",
+  projectId: "sala-de-espera-c3802",
+  storageBucket: "sala-de-espera-c3802.firebasestorage.app",
+  messagingSenderId: "920680794270",
+  appId: "1:920680794270:web:8f2696ab17a841e089538f"
 };
 
 // ============================================================================
-// 3. TRATAMENTO ESTRUTURADO DE ERROS DO FIRESTORE
+// 3. TRATAMENTO ESTRUTURADO DE ERROS DO REALTIME DATABASE
 // ============================================================================
-const OperationType = {
-  CREATE: "create",
-  UPDATE: "update",
-  DELETE: "delete",
-  LIST: "list",
-  GET: "get",
-  WRITE: "write"
-};
-
-function handleFirestoreError(error, operationType, path) {
+function handleDatabaseError(error, operacao, caminho) {
   const user = auth ? auth.currentUser : null;
-  const errInfo = {
+  const infoErro = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: user?.uid || null,
-      email: user?.email || null,
-      emailVerified: user?.emailVerified ?? null,
-      isAnonymous: user?.isAnonymous ?? null,
-      tenantId: user?.tenantId || null,
-      providerInfo:
-        user?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email
-        })) || []
-    },
-    operationType,
-    path
+    operacao,
+    caminho,
+    uid: user?.uid || null,
+    isAnonymous: user?.isAnonymous ?? null
   };
-  console.error("Firestore Error:", JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error("Realtime Database Error:", JSON.stringify(infoErro));
+  throw new Error(JSON.stringify(infoErro));
 }
 
 // ============================================================================
@@ -92,12 +69,10 @@ const screenLogin = document.getElementById("screen-login");
 const screenLobby = document.getElementById("screen-lobby");
 const screenStarted = document.getElementById("screen-started");
 
-// Elementos de autenticação Google
+// Elementos de autenticação (aviso/fallback se anônimo estiver desativado)
+const authBox = document.getElementById("auth-box");
 const authStatusText = document.getElementById("auth-status-text");
 const btnGoogleLogin = document.getElementById("btn-google-login");
-const authSignedInBar = document.getElementById("auth-signed-in-bar");
-const authUserEmail = document.getElementById("auth-user-email");
-const btnGoogleLogout = document.getElementById("btn-google-logout");
 
 // Elementos da tela de login (apelido)
 const loginForm = document.getElementById("login-form");
@@ -130,7 +105,7 @@ const btnBackLobby = document.getElementById("btn-back-lobby");
 // 5. ESTADO LOCAL E IDENTIFICAÇÃO POR ABA (sessionStorage)
 // ============================================================================
 // O sessionStorage é isolado por aba do navegador. Assim, ao abrir duas abas
-// no mesmo computador para testar, cada aba gera seu próprio ID de jogador.
+// no mesmo computador para testar, cada aba representa um jogador diferente.
 function obterOuCriarIdDaAba() {
   let id = sessionStorage.getItem("sala_jogador_id");
   if (!id) {
@@ -143,13 +118,13 @@ function obterOuCriarIdDaAba() {
 const meuId = obterOuCriarIdDaAba();
 let meuNome = "";
 let usuarioAtual = null;
-let tokenAtual = "";
 let estouNaSala = false;
 let estouPronto = false;
 let jogadoresAtuais = {};
 let statusAtualDaSala = "aguardando";
 
-// Controladores dos listeners em tempo real e heartbeat de presença
+// Controladores dos ouvintes em tempo real e heartbeat de presença
+let unsubConexao = null;
 let unsubSala = null;
 let unsubJogadores = null;
 let unsubMensagens = null;
@@ -158,35 +133,23 @@ let intervaloPresenca = null;
 const timersPorBot = new Map();
 
 // ============================================================================
-// 6. INICIALIZAÇÃO DO FIREBASE (AUTH + FIRESTORE) E TESTE DE CONEXÃO
+// 6. INICIALIZAÇÃO DO FIREBASE (AUTH ANÔNIMO + REALTIME DATABASE)
 // ============================================================================
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-// Passar o firestoreDatabaseId é obrigatório para conectar ao banco provisionado
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const db = getDatabase(app);
 const googleProvider = new GoogleAuthProvider();
 
-// Caminhos no Firestore:
+// Caminhos no Realtime Database:
 // salas/principal
 // salas/principal/jogadores/{id}
-// salas/principal/mensagens
-const salaRef = doc(db, "salas", "principal");
-const jogadoresRef = collection(db, "salas", "principal", "jogadores");
-const meuJogadorRef = doc(db, "salas", "principal", "jogadores", meuId);
-const mensagensRef = collection(db, "salas", "principal", "mensagens");
-
-// Valida conectividade inicial com o servidor do Firestore
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, "test", "connection"));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("the client is offline")) {
-      console.error("Verifique a configuração do Firebase: o cliente está offline.");
-      configWarning.classList.remove("hidden");
-    }
-  }
-}
-testConnection();
+// salas/principal/mensagens/{id}
+const salaRef = ref(db, "salas/principal");
+const statusRef = ref(db, "salas/principal/status");
+const jogadoresRef = ref(db, "salas/principal/jogadores");
+const meuJogadorRef = ref(db, `salas/principal/jogadores/${meuId}`);
+const mensagensRef = ref(db, "salas/principal/mensagens");
+const conectadoRef = ref(db, ".info/connected");
 
 // ============================================================================
 // 7. FUNÇÕES AUXILIARES DE INTERFACE (SEGURANÇA COM textContent)
@@ -205,23 +168,12 @@ function mostrarTela(nomeDaTela) {
   }
 }
 
-function formatarHora(valorTimestamp) {
-  if (!valorTimestamp) return "--:--";
-  // No Firestore, serverTimestamp() retorna um objeto Timestamp com .toDate()
-  const data =
-    typeof valorTimestamp.toDate === "function"
-      ? valorTimestamp.toDate()
-      : new Date(valorTimestamp);
+function formatarHora(timestampMs) {
+  if (!timestampMs) return "--:--";
+  const data = new Date(Number(timestampMs));
   const horas = String(data.getHours()).padStart(2, "0");
   const minutos = String(data.getMinutes()).padStart(2, "0");
   return `${horas}:${minutos}`;
-}
-
-function obterMilissegundos(valorTimestamp) {
-  if (!valorTimestamp) return Date.now();
-  if (typeof valorTimestamp.toMillis === "function") return valorTimestamp.toMillis();
-  if (typeof valorTimestamp.toDate === "function") return valorTimestamp.toDate().getTime();
-  return Number(valorTimestamp) || Date.now();
 }
 
 nicknameInput.addEventListener("input", () => {
@@ -230,80 +182,68 @@ nicknameInput.addEventListener("input", () => {
 });
 
 // ============================================================================
-// 8. FLUXO DE AUTENTICAÇÃO GOOGLE (onAuthStateChanged + signInWithPopup)
+// 8. AUTENTICAÇÃO ANÔNIMA AUTOMÁTICA DO FIREBASE AUTH
 // ============================================================================
-onAuthStateChanged(auth, async (user) => {
+// Garante que exista um usuário autenticado (anônimo por padrão) antes de
+// ler ou gravar no Realtime Database.
+async function garantirLoginAnonimo() {
+  if (auth.currentUser) return auth.currentUser;
+
+  try {
+    const credencial = await signInAnonymously(auth);
+    authBox.classList.add("hidden");
+    loginForm.classList.remove("hidden");
+    return credencial.user;
+  } catch (erro) {
+    console.error("Erro no login anônimo:", erro);
+    if (
+      erro?.code === "auth/operation-not-allowed" ||
+      erro?.code === "auth/admin-restricted-operation"
+    ) {
+      authBox.classList.remove("hidden");
+      authStatusText.textContent =
+        "Ative o login Anônimo no Firebase Console (Authentication -> Sign-in method) ou entre com Google:";
+      btnGoogleLogin.classList.remove("hidden");
+      loginForm.classList.add("hidden");
+    } else {
+      configWarning.classList.remove("hidden");
+    }
+    return null;
+  }
+}
+
+onAuthStateChanged(auth, (user) => {
   usuarioAtual = user;
 
   if (user) {
-    // Guarda o token JWT atualizado para limpeza rápida via keepalive ao fechar a aba
-    try {
-      tokenAtual = await user.getIdToken();
-    } catch {
-      tokenAtual = "";
-    }
-
-    authStatusText.classList.add("hidden");
-    btnGoogleLogin.classList.add("hidden");
-    authSignedInBar.classList.remove("hidden");
-    authUserEmail.textContent = user.email || user.displayName || "Conta conectada";
+    authBox.classList.add("hidden");
     loginForm.classList.remove("hidden");
-
-    // Preenche sugestão de apelido se o campo estiver vazio
-    if (!nicknameInput.value.trim() && user.displayName) {
-      const primeiroNome = user.displayName.split(" ")[0].slice(0, 16);
-      nicknameInput.value = primeiroNome;
-      nicknameCounter.textContent = `${primeiroNome.length}/16`;
-    }
-
-    // Ao carregar a página, verifica se já existe algum bot aguardando no banco
+    // Ao carregar a página já autenticado, verifica bots com pronto: false
     verificarBotsPendentesAoCarregar();
   } else {
-    tokenAtual = "";
-    pararObservadores();
-    estouNaSala = false;
-    headerPlayerInfo.classList.add("hidden");
-
-    authStatusText.textContent = "Faça login com sua conta Google para entrar na sala:";
-    authStatusText.classList.remove("hidden");
-    btnGoogleLogin.classList.remove("hidden");
-    authSignedInBar.classList.add("hidden");
-    loginForm.classList.add("hidden");
-    mostrarTela("login");
+    garantirLoginAnonimo();
   }
 });
 
 btnGoogleLogin.addEventListener("click", async () => {
-  loginError.classList.add("hidden");
   btnGoogleLogin.disabled = true;
   btnGoogleLogin.textContent = "Conectando...";
-
   try {
     await signInWithPopup(auth, googleProvider);
   } catch (erro) {
     console.error("Erro no login Google:", erro);
-    authStatusText.textContent = "Não foi possível concluir o login Google. Tente novamente.";
+    authStatusText.textContent = "Não foi possível entrar com Google. Tente novamente.";
   } finally {
     btnGoogleLogin.disabled = false;
     btnGoogleLogin.textContent = "Entrar com Google";
   }
 });
 
-btnGoogleLogout.addEventListener("click", async () => {
-  try {
-    await sairDaSala();
-    await signOut(auth);
-  } catch (erro) {
-    console.error("Erro ao sair da conta:", erro);
-  }
-});
-
 // ============================================================================
-// 9. ENTRAR NA SALA E REMOVER AUTOMATICAMENTE AO FECHAR A ABA
+// 9. ENTRAR NA SALA, REINICIAR SE VAZIA E CONFIGURAR onDisconnect
 // ============================================================================
 loginForm.addEventListener("submit", async (evento) => {
   evento.preventDefault();
-  if (!usuarioAtual) return;
 
   const apelido = nicknameInput.value.trim().slice(0, 16);
   if (apelido.length === 0) {
@@ -317,80 +257,78 @@ loginForm.addEventListener("submit", async (evento) => {
   btnEnter.textContent = "Entrando...";
 
   try {
-    tokenAtual = await usuarioAtual.getIdToken();
+    // Garante que o login anônimo já foi concluído antes de acessar o banco
+    if (!usuarioAtual) {
+      usuarioAtual = await garantirLoginAnonimo();
+      if (!usuarioAtual) return;
+    }
+
     meuNome = apelido;
 
-    // Garante que o documento principal da sala exista no Firestore
-    let salaSnap;
-    try {
-      salaSnap = await getDoc(salaRef);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, "salas/principal");
-    }
+    // Remove eventual registro residual desta aba antes de checar se a sala está vazia
+    await remove(meuJogadorRef).catch(() => {});
 
-    if (!salaSnap.exists()) {
-      try {
-        await setDoc(salaRef, {
-          status: "aguardando",
-          atualizadoEm: serverTimestamp()
-        });
-        statusAtualDaSala = "aguardando";
-      } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, "salas/principal");
-      }
-    } else {
-      statusAtualDaSala = salaSnap.data().status || "aguardando";
-    }
-
-    // Remove eventual registro residual desta aba antes de verificar se a sala está vazia
-    await deleteDoc(meuJogadorRef).catch(() => {});
-
-    // Verifica quantos jogadores ativos existem na sala neste momento
+    // Verifica quantos jogadores ativos já estão em salas/principal/jogadores
     let snapJogadoresAntes;
     try {
-      snapJogadoresAntes = await getDocs(jogadoresRef);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, "salas/principal/jogadores");
+      snapJogadoresAntes = await get(jogadoresRef);
+    } catch (erro) {
+      handleDatabaseError(erro, "get", "salas/principal/jogadores");
     }
 
+    const dadosAntes = snapJogadoresAntes.val() || {};
     const agora = Date.now();
     let jogadoresAtivos = 0;
-    snapJogadoresAntes.forEach((docSnap) => {
-      const dados = docSnap.data();
-      const ultimo = obterMilissegundos(dados.ultimoSinal);
+
+    Object.values(dadosAntes).forEach((dados) => {
+      const ultimo = Number(dados.ultimoSinal) || 0;
       if (agora - ultimo <= 60000 || dados.bot === true) {
         jogadoresAtivos++;
       }
     });
 
-    // Se a sala estiver vazia (este jogador é o primeiro), limpa o chat
-    // anterior e garante que o status da sala volte para "aguardando"
+    // Se a sala estiver vazia (este jogador é o primeiro), apaga todas as
+    // mensagens do chat e garante o status "aguardando" antes de registrá-lo
     if (jogadoresAtivos === 0) {
-      await apagarTodasAsMensagens();
-      if (salaSnap.exists() && statusAtualDaSala !== "aguardando") {
-        try {
-          await updateDoc(salaRef, {
-            status: "aguardando",
-            atualizadoEm: serverTimestamp()
-          });
-          statusAtualDaSala = "aguardando";
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, "salas/principal");
-        }
+      try {
+        await remove(mensagensRef);
+      } catch (erro) {
+        handleDatabaseError(erro, "remove", "salas/principal/mensagens");
+      }
+
+      try {
+        await update(salaRef, {
+          status: "aguardando",
+          atualizadoEm: serverTimestamp()
+        });
+        statusAtualDaSala = "aguardando";
+      } catch (erro) {
+        handleDatabaseError(erro, "update", "salas/principal");
+      }
+    } else {
+      // Lê o status atual da sala caso já existam jogadores
+      try {
+        const snapStatus = await get(statusRef);
+        statusAtualDaSala = snapStatus.val() || "aguardando";
+      } catch (erro) {
+        handleDatabaseError(erro, "get", "salas/principal/status");
       }
     }
 
-    // Registra este jogador (por aba) em salas/principal/jogadores/{id}
+    // Configura onDisconnect para remover o jogador real se fechar a aba
+    await onDisconnect(meuJogadorRef).remove();
+
+    // Registra o jogador em salas/principal/jogadores/{id}
     try {
-      await setDoc(meuJogadorRef, {
+      await set(meuJogadorRef, {
         uid: usuarioAtual.uid,
         nome: meuNome,
         pronto: false,
         entrouEm: serverTimestamp(),
         ultimoSinal: serverTimestamp()
       });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `salas/principal/jogadores/${meuId}`);
+    } catch (erro) {
+      handleDatabaseError(erro, "set", `salas/principal/jogadores/${meuId}`);
     }
 
     estouNaSala = true;
@@ -398,18 +336,17 @@ loginForm.addEventListener("submit", async (evento) => {
 
     // Envia mensagem de sistema informando que o jogador entrou na sala
     try {
-      await addDoc(mensagensRef, {
+      await push(mensagensRef, {
         uid: usuarioAtual.uid,
         tipo: "sistema",
         autor: "Sistema",
         texto: `${meuNome} entrou na sala`,
         hora: serverTimestamp()
       });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, "salas/principal/mensagens");
+    } catch (erro) {
+      handleDatabaseError(erro, "push", "salas/principal/mensagens");
     }
 
-    // Inicia observadores em tempo real e o heartbeat de presença da aba
     iniciarObservadoresEmTempoReal();
     iniciarHeartbeatDePresenca();
 
@@ -424,7 +361,8 @@ loginForm.addEventListener("submit", async (evento) => {
   } catch (erro) {
     console.error("Erro ao entrar na sala:", erro);
     estouNaSala = false;
-    loginError.textContent = "Não foi possível entrar na sala. Tente novamente.";
+    loginError.textContent =
+      "Não foi possível conectar ao Realtime Database. Verifique a databaseURL e as regras.";
     loginError.classList.remove("hidden");
   } finally {
     btnEnter.disabled = false;
@@ -432,17 +370,19 @@ loginForm.addEventListener("submit", async (evento) => {
   }
 });
 
-// Remove o jogador da sala de forma limpa (botão "Sair da sala")
+// Botão "Sair da sala": remove o jogador e volta para a tela de login
 async function sairDaSala() {
   pararObservadores();
   if (!estouNaSala) return;
 
   estouNaSala = false;
   try {
-    await deleteDoc(meuJogadorRef);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, `salas/principal/jogadores/${meuId}`);
+    await onDisconnect(meuJogadorRef).cancel();
+    await remove(meuJogadorRef);
+  } catch (erro) {
+    handleDatabaseError(erro, "remove", `salas/principal/jogadores/${meuId}`);
   }
+
   headerPlayerInfo.classList.add("hidden");
   mostrarTela("login");
 }
@@ -451,52 +391,29 @@ btnLeaveRoom.addEventListener("click", () => {
   sairDaSala();
 });
 
-// Remove o jogador automaticamente se fechar ou recarregar a aba do navegador
-function removerAoFecharAba() {
-  if (!estouNaSala || !usuarioAtual) return;
-
-  // 1) Tenta remover via SDK Firestore
-  deleteDoc(meuJogadorRef).catch(() => {});
-
-  // 2) Envia DELETE REST com keepalive:true para garantir execução mesmo após fechar a aba
-  if (tokenAtual) {
-    const restUrl =
-      `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
-      `/databases/${firebaseConfig.firestoreDatabaseId}/documents/salas/principal/jogadores/${meuId}`;
-
-    fetch(restUrl, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${tokenAtual}`
-      },
-      keepalive: true
-    }).catch(() => {});
-  }
-}
-
-window.addEventListener("pagehide", removerAoFecharAba);
-window.addEventListener("beforeunload", removerAoFecharAba);
-
 // Atualiza o campo ultimoSinal a cada 15 segundos enquanto a aba estiver aberta
 function iniciarHeartbeatDePresenca() {
   if (intervaloPresenca) clearInterval(intervaloPresenca);
   intervaloPresenca = setInterval(async () => {
     if (!estouNaSala || !usuarioAtual) return;
     try {
-      tokenAtual = await usuarioAtual.getIdToken();
-      await updateDoc(meuJogadorRef, {
+      await update(meuJogadorRef, {
         ultimoSinal: serverTimestamp()
       });
     } catch {
-      // Ignora falhas transitórias de heartbeat
+      // Ignora falhas transitórias de rede
     }
   }, 15000);
 }
 
 // ============================================================================
-// 10. OBSERVADORES EM TEMPO REAL (onSnapshot)
+// 10. OBSERVADORES EM TEMPO REAL (onValue)
 // ============================================================================
 function pararObservadores() {
+  if (unsubConexao) {
+    unsubConexao();
+    unsubConexao = null;
+  }
   if (unsubSala) {
     unsubSala();
     unsubSala = null;
@@ -524,13 +441,19 @@ function limparTimersDeBots() {
 function iniciarObservadoresEmTempoReal() {
   pararObservadores();
 
-  // 10A. Observa o status da sala (aguardando / iniciada)
-  unsubSala = onSnapshot(
-    salaRef,
-    (snapshot) => {
-      const dados = snapshot.data();
-      statusAtualDaSala = dados?.status || "aguardando";
+  // 10A. Monitora .info/connected para rearmar o onDisconnect se a conexão voltar
+  unsubConexao = onValue(conectadoRef, (snapshot) => {
+    const conectado = snapshot.val() === true;
+    if (conectado && estouNaSala) {
+      onDisconnect(meuJogadorRef).remove();
+    }
+  });
 
+  // 10B. Observa o status da sala em salas/principal/status
+  unsubSala = onValue(
+    statusRef,
+    (snapshot) => {
+      statusAtualDaSala = snapshot.val() || "aguardando";
       if (!estouNaSala) return;
 
       if (statusAtualDaSala === "iniciada") {
@@ -539,53 +462,55 @@ function iniciarObservadoresEmTempoReal() {
         mostrarTela("lobby");
       }
     },
-    (error) => {
-      handleFirestoreError(error, OperationType.GET, "salas/principal");
+    (erro) => {
+      handleDatabaseError(erro, "onValue", "salas/principal/status");
     }
   );
 
-  // 10B. Observa a lista de jogadores em tempo real
-  unsubJogadores = onSnapshot(
+  // 10C. Observa a lista de jogadores em salas/principal/jogadores
+  unsubJogadores = onValue(
     jogadoresRef,
     (snapshot) => {
+      const dadosBrutos = snapshot.val() || {};
       const mapa = {};
       const agora = Date.now();
 
-      snapshot.forEach((docSnap) => {
-        const dados = docSnap.data();
-        const ultimo = obterMilissegundos(dados.ultimoSinal);
+      Object.entries(dadosBrutos).forEach(([id, dados]) => {
+        if (!dados) return;
+        const ultimo = Number(dados.ultimoSinal) || agora;
+
         // Mantém jogadores ativos, a própria aba e os bots do modo demonstração
-        if (agora - ultimo <= 60000 || docSnap.id === meuId || dados.bot === true) {
-          mapa[docSnap.id] = dados;
+        if (agora - ultimo <= 60000 || id === meuId || dados.bot === true) {
+          mapa[id] = dados;
         }
 
         // Se algum bot ainda estiver com pronto: false, agenda sua confirmação automática
         if (dados.bot === true && dados.pronto === false) {
-          agendarBotPendente(docSnap.id, dados.nome || "Bot", true);
+          agendarBotPendente(id, dados.nome || "Bot");
         }
       });
 
       jogadoresAtuais = mapa;
       renderizarListaDeJogadores(jogadoresAtuais);
     },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, "salas/principal/jogadores");
+    (erro) => {
+      handleDatabaseError(erro, "onValue", "salas/principal/jogadores");
     }
   );
 
-  // 10C. Observa as últimas 60 mensagens do chat ordenadas por horário
-  const consultaMensagens = query(mensagensRef, orderBy("hora", "asc"), limitToLast(60));
-  unsubMensagens = onSnapshot(
+  // 10D. Observa as últimas 60 mensagens do chat ordenadas por horário
+  const consultaMensagens = query(mensagensRef, orderByChild("hora"), limitToLast(60));
+  unsubMensagens = onValue(
     consultaMensagens,
     (snapshot) => {
       const lista = [];
-      snapshot.forEach((docSnap) => {
-        lista.push(docSnap.data());
+      snapshot.forEach((childSnap) => {
+        lista.push(childSnap.val());
       });
       renderizarChat(lista);
     },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, "salas/principal/mensagens");
+    (erro) => {
+      handleDatabaseError(erro, "onValue", "salas/principal/mensagens");
     }
   );
 }
@@ -598,7 +523,9 @@ function renderizarListaDeJogadores(dadosJogadores) {
   startedPlayersList.textContent = "";
 
   const lista = Object.entries(dadosJogadores).sort((a, b) => {
-    return obterMilissegundos(a[1].entrouEm) - obterMilissegundos(b[1].entrouEm);
+    const tempoA = Number(a[1].entrouEm) || 0;
+    const tempoB = Number(b[1].entrouEm) || 0;
+    return tempoA - tempoB;
   });
 
   const totalJogadores = lista.length;
@@ -647,10 +574,10 @@ function renderizarListaDeJogadores(dadosJogadores) {
     startedPlayersList.appendChild(itemPartida);
   });
 
-  // Atualiza os botões de bots (desabilita "Adicionar bot" ao atingir 4 bots)
+  // Atualiza os botões do modo demonstração (limite de 4 bots)
   atualizarBotoesDeBots(quantidadeBots);
 
-  // Mostra a dica quando a sala estiver com apenas 1 jogador e sem nenhum bot
+  // Mostra a dica quando houver apenas 1 jogador e nenhum bot na sala
   if (totalJogadores === 1 && quantidadeBots === 0) {
     demoSoloTip.classList.remove("hidden");
   } else {
@@ -691,12 +618,12 @@ btnReady.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual) return;
 
   try {
-    await updateDoc(meuJogadorRef, {
+    await update(meuJogadorRef, {
       pronto: !estouPronto,
       ultimoSinal: serverTimestamp()
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `salas/principal/jogadores/${meuId}`);
+  } catch (erro) {
+    handleDatabaseError(erro, "update", `salas/principal/jogadores/${meuId}`);
   }
 });
 
@@ -710,15 +637,15 @@ chatForm.addEventListener("submit", async (evento) => {
   chatInput.value = "";
 
   try {
-    await addDoc(mensagensRef, {
+    await push(mensagensRef, {
       uid: usuarioAtual.uid,
       tipo: "usuario",
       autor: meuNome,
       texto: texto,
       hora: serverTimestamp()
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, "salas/principal/mensagens");
+  } catch (erro) {
+    handleDatabaseError(erro, "push", "salas/principal/mensagens");
   }
 });
 
@@ -786,40 +713,38 @@ btnStart.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual || btnStart.disabled) return;
 
   try {
-    await updateDoc(salaRef, {
+    await update(salaRef, {
       status: "iniciada",
       atualizadoEm: serverTimestamp()
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, "salas/principal");
+  } catch (erro) {
+    handleDatabaseError(erro, "update", "salas/principal");
   }
 });
 
 // Botão "Voltar para a sala": zera o "pronto" de todos e volta para "aguardando"
-// usando um writeBatch atômico validado pelas regras de segurança do Firestore
+// usando um update em lote na raiz de salas/principal
 btnBackLobby.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual) return;
 
   try {
-    const snapJogadores = await getDocs(jogadoresRef);
-    const batch = writeBatch(db);
+    const snapJogadores = await get(jogadoresRef);
+    const dadosJogadores = snapJogadores.val() || {};
 
-    batch.update(salaRef, {
+    const atualizacoes = {
       status: "aguardando",
       atualizadoEm: serverTimestamp()
-    });
+    };
 
-    snapJogadores.forEach((docSnap) => {
-      if (docSnap.data().pronto !== false) {
-        batch.update(docSnap.ref, {
-          pronto: false
-        });
+    Object.keys(dadosJogadores).forEach((id) => {
+      if (dadosJogadores[id]?.pronto !== false) {
+        atualizacoes[`jogadores/${id}/pronto`] = false;
       }
     });
 
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, "salas/principal");
+    await update(salaRef, atualizacoes);
+  } catch (erro) {
+    handleDatabaseError(erro, "update", "salas/principal");
   }
 });
 
@@ -829,7 +754,6 @@ btnBackLobby.addEventListener("click", async () => {
 const LIMITE_BOTS = 4;
 const nomesDeBots = ["Lucas", "Marina", "Rafael", "Camila", "Bruno", "Sofia", "Pedro", "Julia"];
 
-// Atualiza o estado visual dos botões de bot conforme a quantidade na sala
 function atualizarBotoesDeBots(quantidadeBots) {
   btnRemoveBots.disabled = quantidadeBots === 0;
 
@@ -842,7 +766,7 @@ function atualizarBotoesDeBots(quantidadeBots) {
   }
 }
 
-// Adiciona um jogador falso (bot: true), respeitando o limite e sem repetir nomes
+// Adiciona um jogador simulado (bot: true), respeitando o limite e sem repetir nomes
 btnAddBot.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual) return;
 
@@ -852,15 +776,14 @@ btnAddBot.addEventListener("click", async () => {
   let totalBotsAtuais = Object.values(jogadoresAtuais).filter((j) => j.bot === true).length;
 
   try {
-    // Consulta o banco no momento do clique para evitar ultrapassar o limite ou repetir nome
-    const snapJogadores = await getDocs(jogadoresRef);
+    const snapJogadores = await get(jogadoresRef);
+    const dadosJogadores = snapJogadores.val() || {};
     const nomesEmUso = new Set();
     let botsNoBanco = 0;
 
-    snapJogadores.forEach((docSnap) => {
-      const dados = docSnap.data();
-      if (dados.nome) nomesEmUso.add(dados.nome);
-      if (dados.bot === true) botsNoBanco++;
+    Object.values(dadosJogadores).forEach((dados) => {
+      if (dados?.nome) nomesEmUso.add(dados.nome);
+      if (dados?.bot === true) botsNoBanco++;
     });
 
     totalBotsAtuais = botsNoBanco;
@@ -877,10 +800,10 @@ btnAddBot.addEventListener("click", async () => {
     const nomeBot = `${nomeEscolhido} (bot)`;
 
     botId = "bot_" + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
-    const botRef = doc(db, "salas", "principal", "jogadores", botId);
+    const botRef = ref(db, `salas/principal/jogadores/${botId}`);
 
     // 1) Cria o bot com a mesma estrutura dos jogadores reais + bot: true
-    await setDoc(botRef, {
+    await set(botRef, {
       uid: usuarioAtual.uid,
       nome: nomeBot,
       pronto: false,
@@ -890,8 +813,8 @@ btnAddBot.addEventListener("click", async () => {
     });
     totalBotsAtuais = botsNoBanco + 1;
 
-    // 2) Envia "entrou na sala" apenas uma vez, no momento da criação do bot
-    await addDoc(mensagensRef, {
+    // 2) Envia "entrou na sala" apenas uma vez, na criação do bot
+    await push(mensagensRef, {
       uid: usuarioAtual.uid,
       tipo: "sistema",
       autor: "Sistema",
@@ -901,8 +824,8 @@ btnAddBot.addEventListener("click", async () => {
 
     // 3) Agenda o bot para marcar "pronto" entre 2 e 5 segundos
     agendarBotPendente(botId, nomeBot);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, `salas/principal/jogadores/${botId || "bot"}`);
+  } catch (erro) {
+    handleDatabaseError(erro, "set", `salas/principal/jogadores/${botId || "bot"}`);
   } finally {
     atualizarBotoesDeBots(totalBotsAtuais);
   }
@@ -913,15 +836,16 @@ async function verificarBotsPendentesAoCarregar() {
   if (!usuarioAtual) return;
 
   try {
-    const snapJogadores = await getDocs(jogadoresRef);
-    snapJogadores.forEach((docSnap) => {
-      const dados = docSnap.data();
-      if (dados.bot === true && dados.pronto === false) {
-        agendarBotPendente(docSnap.id, dados.nome || "Bot");
+    const snapJogadores = await get(jogadoresRef);
+    const dadosJogadores = snapJogadores.val() || {};
+
+    Object.entries(dadosJogadores).forEach(([id, dados]) => {
+      if (dados?.bot === true && dados?.pronto === false) {
+        agendarBotPendente(id, dados.nome || "Bot");
       }
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, "salas/principal/jogadores");
+  } catch (erro) {
+    handleDatabaseError(erro, "get", "salas/principal/jogadores");
   }
 }
 
@@ -936,24 +860,24 @@ function agendarBotPendente(botId, nomeBot) {
     if (!usuarioAtual) return;
 
     try {
-      const botRef = doc(db, "salas", "principal", "jogadores", botId);
-      const botSnap = await getDoc(botRef);
+      const botRef = ref(db, `salas/principal/jogadores/${botId}`);
+      const botSnap = await get(botRef);
+      const dadosBot = botSnap.val();
 
       // Só atualiza se o bot ainda existir no banco e continuar em "Aguardando"
-      if (!botSnap.exists() || botSnap.data().pronto === true) return;
+      if (!dadosBot || dadosBot.pronto === true) return;
 
-      const jaAvisou = botSnap.data().avisou === true;
+      const jaAvisou = dadosBot.avisou === true;
 
-      // Salva avisou: true junto com pronto: true quando ainda não tiver avisado
       if (!jaAvisou) {
-        await updateDoc(botRef, {
+        // Salva avisou: true junto com pronto: true e envia "Estou pronto!" só 1 vez
+        await update(botRef, {
           pronto: true,
           avisou: true,
           ultimoSinal: serverTimestamp()
         });
 
-        // Envia a mensagem "Estou pronto!" apenas uma única vez para este bot
-        await addDoc(mensagensRef, {
+        await push(mensagensRef, {
           uid: usuarioAtual.uid,
           tipo: "usuario",
           autor: nomeBot,
@@ -961,20 +885,20 @@ function agendarBotPendente(botId, nomeBot) {
           hora: serverTimestamp()
         });
       } else {
-        await updateDoc(botRef, {
+        await update(botRef, {
           pronto: true,
           ultimoSinal: serverTimestamp()
         });
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `salas/principal/jogadores/${botId}`);
+    } catch (erro) {
+      handleDatabaseError(erro, "update", `salas/principal/jogadores/${botId}`);
     }
   }, atrasoMs);
 
   timersPorBot.set(botId, timerId);
 }
 
-// Apaga do banco todos os jogadores marcados com bot: true
+// Remove do banco todos os jogadores marcados com bot: true
 btnRemoveBots.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual) return;
 
@@ -982,61 +906,35 @@ btnRemoveBots.addEventListener("click", async () => {
   limparTimersDeBots();
 
   try {
-    const snapJogadores = await getDocs(jogadoresRef);
-    const batch = writeBatch(db);
-    let totalRemovidos = 0;
+    const snapJogadores = await get(jogadoresRef);
+    const dadosJogadores = snapJogadores.val() || {};
+    const remocoes = {};
 
-    snapJogadores.forEach((docSnap) => {
-      if (docSnap.data().bot === true) {
-        batch.delete(docSnap.ref);
-        totalRemovidos++;
+    Object.entries(dadosJogadores).forEach(([id, dados]) => {
+      if (dados?.bot === true) {
+        remocoes[id] = null;
       }
     });
 
-    if (totalRemovidos > 0) {
-      await batch.commit();
+    if (Object.keys(remocoes).length > 0) {
+      await update(jogadoresRef, remocoes);
     }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, "salas/principal/jogadores");
+  } catch (erro) {
+    handleDatabaseError(erro, "update", "salas/principal/jogadores");
   }
 });
 
 // ============================================================================
-// 14. LIMPAR CHAT (BOTÃO E REINÍCIO DE SALA VAZIA)
+// 14. LIMPAR CHAT
 // ============================================================================
-// Apaga todas as mensagens de salas/principal/mensagens em lotes seguros
-async function apagarTodasAsMensagens() {
-  let snapMensagens;
-  try {
-    snapMensagens = await getDocs(mensagensRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, "salas/principal/mensagens");
-  }
-
-  if (!snapMensagens || snapMensagens.empty) return;
-
-  // O Firestore permite até 500 operações por writeBatch; usamos 450 por segurança
-  const docs = snapMensagens.docs;
-  for (let i = 0; i < docs.length; i += 450) {
-    const batch = writeBatch(db);
-    docs.slice(i, i + 450).forEach((docSnap) => {
-      batch.delete(docSnap.ref);
-    });
-
-    try {
-      await batch.commit();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, "salas/principal/mensagens");
-    }
-  }
-}
-
 // Botão pequeno "Limpar chat": apaga todas as mensagens do banco para todos
 btnClearChat.addEventListener("click", async () => {
   if (!estouNaSala || !usuarioAtual) return;
 
   btnClearChat.disabled = true;
-  await apagarTodasAsMensagens();
+  try {
+    await remove(mensagensRef);
+  } catch (erro) {
+    handleDatabaseError(erro, "remove", "salas/principal/mensagens");
+  }
 });
-
-

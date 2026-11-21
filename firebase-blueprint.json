@@ -11,9 +11,8 @@
           "description": "Estado atual da sala (aguardando jogadores ou partida iniciada)."
         },
         "atualizadoEm": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Data e hora da última atualização de estado da sala."
+          "type": "number",
+          "description": "Timestamp em milissegundos da última atualização de estado da sala."
         }
       },
       "required": ["status", "atualizadoEm"]
@@ -39,14 +38,12 @@
           "description": "Indica se o jogador confirmou que está pronto."
         },
         "entrouEm": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Horário de entrada do jogador na sala."
+          "type": "number",
+          "description": "Timestamp de entrada do jogador na sala."
         },
         "ultimoSinal": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Último sinal de atividade da aba."
+          "type": "number",
+          "description": "Timestamp do último sinal de atividade da aba."
         },
         "bot": {
           "type": "boolean",
@@ -87,18 +84,17 @@
           "description": "Conteúdo da mensagem."
         },
         "hora": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Horário de envio registrado no servidor."
+          "type": "number",
+          "description": "Timestamp de envio registrado no servidor."
         }
       },
       "required": ["uid", "tipo", "autor", "texto", "hora"]
     }
   },
-  "firestore": {
+  "realtimeDatabase": {
     "/salas/{salaId}": {
       "schema": { "$ref": "#/entities/Sala" },
-      "description": "Documento de controle de estado da sala de espera (ex: principal)."
+      "description": "Nó de controle de estado da sala de espera (ex: principal)."
     },
     "/salas/{salaId}/jogadores/{jogadorId}": {
       "schema": { "$ref": "#/entities/Jogador" },

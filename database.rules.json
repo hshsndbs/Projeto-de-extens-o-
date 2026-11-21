@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "salas": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$salaId": {
+        "mensagens": {
+          ".indexOn": ["hora"]
+        }
+      }
+    }
+  }
+}
