@@ -1,6 +1,0 @@
-{
-  "name": "Sala de Espera",
-  "description": "Sala de espera para jogos online com Firebase Realtime Database.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
-}
