@@ -1,6 +1,6 @@
 {
-  "name": "Sala de Espera — Lobby Multiplayer",
-  "description": "Aplicação web de sala de espera em tempo real para jogos usando HTML, CSS, JavaScript puro e Firebase Realtime Database.",
+  "name": "Sala de Espera",
+  "description": "Sala de espera para jogos online com Firebase Realtime Database.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

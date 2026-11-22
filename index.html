@@ -2,24 +2,21 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sala de Espera — Lobby Multiplayer</title>
-  <meta name="description" content="Sala de espera em tempo real para jogos multiplayer usando HTML, CSS, JavaScript puro e Firebase." />
-  <meta property="og:title" content="Sala de Espera — Lobby Multiplayer" />
-  <meta property="og:description" content="Sala de espera em tempo real para jogos multiplayer usando HTML, CSS, JavaScript puro e Firebase." />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Sala de Espera</title>
+  <meta name="description" content="Sala de espera para jogos online." />
+  <meta property="og:title" content="Sala de Espera" />
+  <meta property="og:description" content="Sala de espera para jogos online." />
   <meta property="og:type" content="website" />
 
-  <!-- Tipografia limpa (Plus Jakarta Sans para interface e JetBrains Mono para horários/números) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- Arquivo de estilos separado -->
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <main class="app-shell">
-    <!-- Cabeçalho simples e informativo -->
     <header class="top-header">
       <div class="brand-group">
         <h1 class="brand-title">Sala de Espera</h1>
@@ -32,24 +29,16 @@
       </div>
     </header>
 
-    <!-- Aviso de erro de configuração/conexão caso ocorra -->
     <section id="config-warning" class="banner-warning hidden" role="alert">
-      <strong>Aviso de conexão:</strong> Não foi possível validar a conexão com o Firebase.
-      Verifique o objeto <code>firebaseConfig</code> no topo de <code>app.js</code>.
+      Erro ao conectar no Firebase. Verifique o <code>firebaseConfig</code> no arquivo <code>app.js</code>.
     </section>
 
-    <!-- =========================================================
-         TELA 1: LOGIN (Login anônimo automático + Apelido na sala)
-         ========================================================= -->
     <section id="screen-login" class="card login-card" aria-labelledby="login-title">
       <div class="login-header">
         <h2 id="login-title" class="section-title">Entrar na sala</h2>
-        <p class="section-subtitle">
-          Escolha um apelido de até 16 caracteres para participar da sala de espera e conversar.
-        </p>
+        <p class="section-subtitle">Digite um apelido para entrar.</p>
       </div>
 
-      <!-- Aviso exibido apenas se o login anônimo não estiver ativado no Firebase Console -->
       <div id="auth-box" class="auth-box hidden">
         <p id="auth-status-text" class="auth-status-text"></p>
         <button type="button" id="btn-google-login" class="btn btn-primary btn-full hidden">
@@ -57,7 +46,6 @@
         </button>
       </div>
 
-      <!-- Escolha do apelido e entrada na sala -->
       <form id="login-form" class="login-form" novalidate>
         <div class="field-group">
           <label for="nickname-input" class="field-label">Seu apelido</label>
@@ -67,11 +55,11 @@
             class="text-input"
             maxlength="16"
             autocomplete="off"
-            placeholder="Ex: Jogador1"
+            placeholder="Ex: Lucas"
             required
           />
           <div class="field-helper">
-            <span>Máximo de 16 caracteres</span>
+            <span>Até 16 caracteres</span>
             <span id="nickname-counter" class="tabular-nums">0/16</span>
           </div>
         </div>
@@ -84,11 +72,7 @@
       </form>
     </section>
 
-    <!-- =========================================================
-         TELA 2: SALA DE ESPERA (Jogadores, Pronto, Chat e Iniciar)
-         ========================================================= -->
     <section id="screen-lobby" class="lobby-grid hidden" aria-label="Sala de espera">
-      <!-- Coluna esquerda: Lista de jogadores e ações da partida -->
       <div class="card panel-players">
         <div class="panel-header">
           <div>
@@ -97,9 +81,7 @@
           </div>
         </div>
 
-        <ul id="players-list" class="players-list" aria-live="polite">
-          <!-- Preenchido dinamicamente via JavaScript usando textContent -->
-        </ul>
+        <ul id="players-list" class="players-list" aria-live="polite"></ul>
 
         <div class="lobby-actions">
           <button type="button" id="btn-ready" class="btn btn-primary btn-full">
@@ -111,11 +93,10 @@
           </button>
 
           <p id="start-hint" class="action-hint">
-            Necessário no mínimo 2 jogadores prontos para iniciar.
+            Precisa de pelo menos 2 jogadores prontos.
           </p>
         </div>
 
-        <!-- Modo demonstração: área visível e autoexplicativa para testar sozinho -->
         <div class="demo-section">
           <div class="demo-header">
             <h3 class="demo-title">Modo demonstração</h3>
@@ -139,7 +120,6 @@
         </div>
       </div>
 
-      <!-- Coluna direita: Chat em tempo real -->
       <div class="card panel-chat">
         <div class="panel-header panel-header-row">
           <h2 class="section-title">Chat da sala</h2>
@@ -148,9 +128,7 @@
           </button>
         </div>
 
-        <div id="chat-messages" class="chat-messages" aria-live="polite">
-          <!-- Mensagens renderizadas dinamicamente via JavaScript usando textContent -->
-        </div>
+        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
 
         <form id="chat-form" class="chat-form" novalidate>
           <label for="chat-input" class="sr-only">Digite uma mensagem</label>
@@ -160,7 +138,7 @@
             class="text-input chat-input"
             maxlength="200"
             autocomplete="off"
-            placeholder="Escreva uma mensagem..."
+            placeholder="Digite uma mensagem..."
           />
           <button type="submit" id="btn-send-chat" class="btn btn-primary">
             Enviar
@@ -169,22 +147,17 @@
       </div>
     </section>
 
-    <!-- =========================================================
-         TELA 3: PARTIDA INICIADA
-         ========================================================= -->
     <section id="screen-started" class="card started-card hidden" aria-labelledby="started-title">
       <div class="started-content">
-        <span class="started-kicker">Todos os jogadores confirmaram</span>
+        <span class="started-kicker">Todos prontos</span>
         <h2 id="started-title" class="started-title">Partida iniciada!</h2>
         <p class="section-subtitle">
-          A sala entrou em jogo simultaneamente para todos os participantes conectados.
+          Todos os jogadores entraram na partida.
         </p>
 
         <div class="started-players-box">
-          <h3 class="started-list-title">Participantes desta partida</h3>
-          <ul id="started-players-list" class="started-players-list">
-            <!-- Lista simples dos jogadores confirmados -->
-          </ul>
+          <h3 class="started-list-title">Jogadores na partida</h3>
+          <ul id="started-players-list" class="started-players-list"></ul>
         </div>
 
         <button type="button" id="btn-back-lobby" class="btn btn-primary">
@@ -194,7 +167,6 @@
     </section>
   </main>
 
-  <!-- Script principal usando módulos ES (SDK modular do Firebase via CDN gstatic) -->
   <script type="module" src="./app.js"></script>
 </body>
 </html>
