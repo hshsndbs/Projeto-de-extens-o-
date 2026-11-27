@@ -19,10 +19,11 @@ Feito por Abner Gustavo Ribeiro Brito, aluno de Análise e Desenvolvimento de Si
 - Se o jogador fecha a aba, ele sai da lista sozinho
 - A sala reinicia quando entra o primeiro jogador numa sala vazia
 - Modo demonstração: botão para adicionar até 4 bots de teste, assim dá para testar sozinho
+- Layout responsivo, funciona em celular, tablet e computador
 
 ## Tecnologias
 
-- React + Vite
+- HTML, CSS e JavaScript, com Vite
 - Firebase Realtime Database
 - Firebase Authentication (login anônimo)
 - Netlify (deploy)
